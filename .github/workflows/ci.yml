@@ -1,88 +1,193 @@
-#!/bin/bash
+name: CI/CD Pipeline
 
-# ezstats installer script for pre-built releases
-set -e  # Exit on any error
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main, master ]
 
-# Configuration
-VERSION=${1:-latest}  # Use specified version or 'latest'
-INSTALL_DIR="$HOME/.local/bin"
-TEMP_DIR="/tmp/ezstats-installer"
-USE_NVIDIA=${2:-default}  # default or nvidia
+jobs:
+  build:
+    name: Build and Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: ezstats-linux-x86_64
+            asset_name: ezstats-linux-x86_64.tar.gz
+          - os: windows-latest
+            artifact_name: ezstats-windows-x86_64
+            asset_name: ezstats-windows-x86_64.zip
+          - os: macos-latest
+            artifact_name: ezstats-macos-x86_64
+            asset_name: ezstats-macos-x86_64.tar.gz
 
-# Determine platform
-PLATFORM="unknown"
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-  PLATFORM="linux-x86_64"
-elif [[ "$OSTYPE" == "darwin"* ]]; then
-  PLATFORM="macos-x86_64"
-else
-  echo "Unsupported platform: $OSTYPE"
-  exit 1
-fi
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    
+    # Cache dependencies to speed up builds
+    - name: Cache dependencies
+      uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    
+    # Build default version
+    - name: Build (Default)
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release
+    
+    # Build with NVIDIA GPU support
+    - name: Build (NVIDIA GPU)
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release --features nvidia-gpu
+        
+    # Rename binary for better organization
+    - name: Prepare binaries (Linux/MacOS)
+      if: matrix.os != 'windows-latest'
+      run: |
+        mkdir -p artifacts/default artifacts/nvidia
+        cp target/release/ezstats artifacts/default/
+        cp target/release/ezstats artifacts/nvidia/ezstats-nvidia
+    
+    - name: Prepare binaries (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        mkdir -p artifacts/default artifacts/nvidia
+        cp target/release/ezstats.exe artifacts/default/
+        cp target/release/ezstats.exe artifacts/nvidia/ezstats-nvidia.exe
+    
+    # Package artifacts
+    - name: Package artifacts (Linux/MacOS)
+      if: matrix.os != 'windows-latest'
+      run: |
+        cd artifacts
+        tar -czvf ../ezstats-default.tar.gz default
+        tar -czvf ../ezstats-nvidia.tar.gz nvidia
+    
+    - name: Package artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        cd artifacts
+        Compress-Archive -Path default -DestinationPath ../ezstats-default.zip
+        Compress-Archive -Path nvidia -DestinationPath ../ezstats-nvidia.zip
+    
+    # Upload artifacts for CI
+    - name: Upload artifacts (Linux/MacOS)
+      if: matrix.os != 'windows-latest'
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: |
+          ezstats-default.tar.gz
+          ezstats-nvidia.tar.gz
+    
+    - name: Upload artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: |
+          ezstats-default.zip
+          ezstats-nvidia.zip
 
-# Clean up any previous temp directory
-rm -rf "$TEMP_DIR"
-mkdir -p "$TEMP_DIR"
-
-# Function to download and install the latest release
-install_latest() {
-  echo "Fetching the latest release information..."
-  RELEASE_URL=$(curl -s https://api.github.com/repos/GITHUB_USERNAME/ezstats/releases/latest | grep "browser_download_url.*$PLATFORM-$USE_NVIDIA" | cut -d '"' -f 4)
-  
-  if [ -z "$RELEASE_URL" ]; then
-    echo "Error: Could not find a suitable release for $PLATFORM-$USE_NVIDIA."
-    exit 1
-  fi
-  
-  echo "Downloading from: $RELEASE_URL"
-  curl -L "$RELEASE_URL" -o "$TEMP_DIR/ezstats.tar.gz"
-}
-
-# Function to download and install a specific version
-install_version() {
-  RELEASE_URL="https://github.com/GITHUB_USERNAME/ezstats/releases/download/v$VERSION/ezstats-$PLATFORM-$USE_NVIDIA.tar.gz"
-  echo "Downloading version $VERSION from: $RELEASE_URL"
-  curl -L "$RELEASE_URL" -o "$TEMP_DIR/ezstats.tar.gz"
-}
-
-# Download the appropriate release
-echo "Installing ezstats ($PLATFORM, $USE_NVIDIA)..."
-
-if [ "$VERSION" = "latest" ]; then
-  install_latest
-else
-  install_version
-fi
-
-# Extract the downloaded archive
-echo "Extracting files..."
-tar -xzf "$TEMP_DIR/ezstats.tar.gz" -C "$TEMP_DIR"
-
-# Find the binary
-BINARY_PATH=""
-if [ "$USE_NVIDIA" = "nvidia" ]; then
-  BINARY_PATH=$(find "$TEMP_DIR" -name "ezstats-nvidia" -type f)
-else
-  BINARY_PATH=$(find "$TEMP_DIR" -name "ezstats" -type f | grep -v "nvidia")
-fi
-
-if [ -z "$BINARY_PATH" ]; then
-  echo "Error: Could not find the ezstats binary in the downloaded package."
-  exit 1
-fi
-
-# Create installation directory if it doesn't exist
-mkdir -p "$INSTALL_DIR"
-
-# Copy the binary to the installation directory
-echo "Installing ezstats to $INSTALL_DIR..."
-if [ "$USE_NVIDIA" = "nvidia" ]; then
-  cp "$BINARY_PATH" "$INSTALL_DIR/ezstats"
-else
-  cp "$BINARY_PATH" "$INSTALL_DIR/ezstats"
-fi
-chmod +x "$INSTALL_DIR/ezstats"
-
-# Clean up
-echo "Cleaning up temporary files..."
-rm -rf
+  release:
+    name: Create Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v2
+      
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+      
+      # Upload Linux assets
+      - name: Upload Linux Default Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./ezstats-linux-x86_64/ezstats-default.tar.gz
+          asset_name: ezstats-linux-x86_64-default.tar.gz
+          asset_content_type: application/gzip
+          
+      - name: Upload Linux NVIDIA Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./ezstats-linux-x86_64/ezstats-nvidia.tar.gz
+          asset_name: ezstats-linux-x86_64-nvidia.tar.gz
+          asset_content_type: application/gzip
+          
+      # Upload Windows assets
+      - name: Upload Windows Default Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./ezstats-windows-x86_64/ezstats-default.zip
+          asset_name: ezstats-windows-x86_64-default.zip
+          asset_content_type: application/zip
+          
+      - name: Upload Windows NVIDIA Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./ezstats-windows-x86_64/ezstats-nvidia.zip
+          asset_name: ezstats-windows-x86_64-nvidia.zip
+          asset_content_type: application/zip
+          
+      # Upload macOS assets
+      - name: Upload macOS Default Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./ezstats-macos-x86_64/ezstats-default.tar.gz
+          asset_name: ezstats-macos-x86_64-default.tar.gz
+          asset_content_type: application/gzip
+          
+      - name: Upload macOS NVIDIA Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./ezstats-macos-x86_64/ezstats-nvidia.tar.gz
+          asset_name: ezstats-macos-x86_64-nvidia.tar.gz
+          asset_content_type: application/gzip
