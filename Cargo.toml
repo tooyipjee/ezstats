@@ -1,5 +1,5 @@
 [package]
-name = "system-monitor"
+name = "ezstats"
 version = "0.1.0"
 edition = "2021"
 
@@ -12,5 +12,6 @@ objc = { version = "0.2.7", optional = true }
 core-foundation = { version = "0.9.3", optional = true }
 
 [features]
+default = []
 nvidia-gpu = ["nvml-wrapper"]
 apple-gpu = ["metal", "objc", "core-foundation"]
