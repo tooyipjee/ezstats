@@ -8,6 +8,7 @@ VERSION=${1:-latest}  # Use specified version or 'latest'
 INSTALL_DIR="$HOME/.local/bin"
 TEMP_DIR="/tmp/ezstats-installer"
 USE_NVIDIA=${2:-default}  # default or nvidia
+GITHUB_REPO="tooyipjee/ezstats"  # Fixed to your actual GitHub repo
 
 # Determine platform
 PLATFORM="unknown"
@@ -27,10 +28,13 @@ mkdir -p "$TEMP_DIR"
 # Function to download and install the latest release
 install_latest() {
   echo "Fetching the latest release information..."
-  RELEASE_URL=$(curl -s https://api.github.com/repos/GITHUB_USERNAME/ezstats/releases/latest | grep "browser_download_url.*$PLATFORM-$USE_NVIDIA" | cut -d '"' -f 4)
+  RELEASE_URL=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep "browser_download_url.*ezstats-$PLATFORM-$USE_NVIDIA" | cut -d '"' -f 4)
   
   if [ -z "$RELEASE_URL" ]; then
     echo "Error: Could not find a suitable release for $PLATFORM-$USE_NVIDIA."
+    echo "Looking for a file containing: ezstats-$PLATFORM-$USE_NVIDIA"
+    echo "Available files:"
+    curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep "browser_download_url"
     exit 1
   fi
   
@@ -40,7 +44,7 @@ install_latest() {
 
 # Function to download and install a specific version
 install_version() {
-  RELEASE_URL="https://github.com/GITHUB_USERNAME/ezstats/releases/download/v$VERSION/ezstats-$PLATFORM-$USE_NVIDIA.tar.gz"
+  RELEASE_URL="https://github.com/$GITHUB_REPO/releases/download/v$VERSION/ezstats-$PLATFORM-$USE_NVIDIA.tar.gz"
   echo "Downloading version $VERSION from: $RELEASE_URL"
   curl -L "$RELEASE_URL" -o "$TEMP_DIR/ezstats.tar.gz"
 }
@@ -70,6 +74,8 @@ fi
 if [ ! -f "$BINARY_DIR/$BINARY_NAME" ]; then
   echo "Error: Could not find the ezstats binary in the downloaded package."
   echo "Expected at: $BINARY_DIR/$BINARY_NAME"
+  echo "Contents of the temp directory:"
+  find "$TEMP_DIR" -type f | sort
   exit 1
 fi
 
@@ -79,22 +85,6 @@ mkdir -p "$INSTALL_DIR"
 # Copy the binary to the installation directory
 echo "Installing ezstats to $INSTALL_DIR..."
 cp "$BINARY_DIR/$BINARY_NAME" "$INSTALL_DIR/ezstats"
-chmod +x "$INSTALL_DIR/ezstats"
-
-# Clean up
-echo "Cleaning up temporary files..."
-rm -rf "$TEMP_DIR"
-
-# Create installation directory if it doesn't exist
-mkdir -p "$INSTALL_DIR"
-
-# Copy the binary to the installation directory
-echo "Installing ezstats to $INSTALL_DIR..."
-if [ "$USE_NVIDIA" = "nvidia" ]; then
-  cp "$BINARY_PATH" "$INSTALL_DIR/ezstats"
-else
-  cp "$BINARY_PATH" "$INSTALL_DIR/ezstats"
-fi
 chmod +x "$INSTALL_DIR/ezstats"
 
 # Clean up

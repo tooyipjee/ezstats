@@ -1,45 +1,75 @@
 # ezstats
 
-A simple, lightweight system monitoring tool written in Rust that displays real-time CPU, RAM, and GPU usage statistics in the terminal with a clean visual interface.
+> A lightweight system monitoring tool for your terminal
+
+<!-- Add your screenshot here -->
+<!-- ![ezstats screenshot](screenshot.png) -->
+
+ezstats is a simple, resource-efficient terminal application that displays real-time CPU, RAM, and GPU usage with a clean and colorful interface. Perfect for keeping an eye on system resources without the overhead of larger monitoring applications.
+
+## Quick Start
+
+### Installation
+
+#### Linux/macOS
+```bash
+curl -L https://raw.githubusercontent.com/tooyipjee/ezstats/main/install_from_release.sh | bash
+```
+
+#### Windows (PowerShell)
+```powershell
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/tooyipjee/ezstats/main/install_from_release.ps1 -OutFile install_from_release.ps1
+.\install_from_release.ps1
+```
+
+### Usage
+
+Just type in your terminal:
+```
+ezstats
+```
+
+### Uninstalling
+
+#### Linux/macOS
+```bash
+curl -L https://raw.githubusercontent.com/tooyipjee/ezstats/main/uninstall.sh | bash
+```
+
+#### Windows (PowerShell)
+```powershell
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/tooyipjee/ezstats/main/uninstall.ps1 -OutFile uninstall.ps1
+.\uninstall.ps1
+```
 
 ## Features
 
-- Real-time CPU usage monitoring (overall and per-core)
-- Memory usage statistics
-- GPU monitoring support:
-  - NVIDIA GPUs via NVML
-  - Apple GPUs via Metal framework (experimental)
-- Color-coded metrics with visual bar charts for easy assessment
-- Extremely low resource footprint
-- Cross-platform compatibility
+- 📊 **Real-time monitoring** of CPU usage (overall and per-core)
+- 🧠 **Memory usage** statistics with visual indicators
+- 🎮 **GPU support** for NVIDIA GPUs (temperature, utilization, memory)
+- 🌈 **Color-coded metrics** for quick assessment (green/yellow/red)
+- 🪶 **Extremely lightweight** - perfect for embedded systems and resource-limited environments
+- 💻 **Cross-platform** - works on Linux, macOS, and Windows
 
-## Project Structure
+## Advanced Information
 
-```
-ezstats/
-├── Cargo.toml
-├── src/
-│   ├── main.rs         # Main entry point and system monitoring logic
-│   ├── gpu.rs          # NVIDIA GPU monitoring module
-│   ├── mac_gpu.rs      # Apple GPU monitoring module
-│   └── widget.rs       # Terminal UI widget system
-```
+<details>
+<summary>Click to expand advanced details</summary>
 
-## Requirements
+### Requirements
 
-- Rust (latest stable version recommended)
 - For NVIDIA GPU monitoring: NVIDIA GPU with drivers installed
 - For Apple GPU monitoring: macOS with Metal-compatible GPU (experimental)
 
-## Installation
+### Installation Options
 
 You have two options for installing ezstats:
 
-### Option 1: Install from pre-built binaries (recommended)
+#### Option 1: Install from pre-built binaries (recommended)
 
 Before using these scripts, make sure to download them from the repository:
 
-#### Linux/macOS
+##### Linux/macOS
 
 ```bash
 # Install latest version (default build)
@@ -52,7 +82,7 @@ Before using these scripts, make sure to download them from the repository:
 ./install_from_release.sh 1.0.0
 ```
 
-#### Windows (PowerShell)
+##### Windows (PowerShell)
 
 ```powershell
 # Install latest version (default build)
@@ -67,9 +97,9 @@ Before using these scripts, make sure to download them from the repository:
 
 **Note:** Before using the installation scripts, edit them to replace `GITHUB_USERNAME` with your actual GitHub username or organization name.
 
-### Option 2: Build and install from source
+#### Option 2: Build and install from source
 
-#### Using the installation scripts
+##### Using the installation scripts
 
 ```bash
 # Linux/macOS
@@ -81,9 +111,9 @@ Before using these scripts, make sure to download them from the repository:
 
 This builds the default version and installs it to your PATH.
 
-#### Manual installation
+##### Manual installation
 
-##### Installing with Cargo
+###### Installing with Cargo
 
 ```bash
 cargo install --path .
@@ -91,33 +121,33 @@ cargo install --path .
 
 This installs the `ezstats` binary to your Cargo bin directory (usually `~/.cargo/bin/`), which should be in your PATH.
 
-##### Building specific versions
+###### Building specific versions
 
-###### Basic build (CPU and RAM monitoring only)
+####### Basic build (CPU and RAM monitoring only)
 
 ```bash
 cargo build --release
 ```
 
-###### With NVIDIA GPU support
+####### With NVIDIA GPU support
 
 ```bash
 cargo build --release --features nvidia-gpu
 ```
 
-###### With Apple GPU support (macOS only, experimental)
+####### With Apple GPU support (macOS only, experimental)
 
 ```bash
 cargo build --release --features apple-gpu
 ```
 
-###### With both GPU monitoring systems
+####### With both GPU monitoring systems
 
 ```bash
 cargo build --release --features "nvidia-gpu apple-gpu"
 ```
 
-## Running
+### Running
 
 After installation:
 ```bash
@@ -129,33 +159,41 @@ Or run directly after building:
 ./target/release/ezstats
 ```
 
-## UI Features
+### UI Features
 
 The system monitor uses a widget-based UI system that provides:
 - Color-coded bar charts (green/yellow/red based on utilization levels)
 - Clean sections for CPU, memory, and GPU metrics
 - Real-time updates with configurable refresh rate
 
-## Customization
+### Customization
 
 You can modify the refresh rate by changing the millisecond value in the `SystemMonitor::new()` call in `main.rs`. The default is set to 1000ms (1 second).
 
-## GPU Support
+### GPU Support
 
-### NVIDIA GPUs
+#### NVIDIA GPUs
 - Monitors utilization, temperature, and memory usage
 - Requires NVML library (included via the nvml-wrapper crate)
 
-### Apple GPUs (Experimental)
+#### Apple GPUs (Experimental)
 - Monitors basic information and estimated utilization
 - Uses the Metal framework (via the metal crate)
 - Works with both integrated and discrete Apple GPUs
 
-## Resource Usage
+### Project Structure
 
-This application is designed to be extremely lightweight with minimal resource usage, making it suitable for embedded systems and devices with limited compute capabilities.
+```
+ezstats/
+├── Cargo.toml
+├── src/
+│   ├── main.rs         # Main entry point and system monitoring logic
+│   ├── gpu.rs          # NVIDIA GPU monitoring module
+│   ├── mac_gpu.rs      # Apple GPU monitoring module
+│   └── widget.rs       # Terminal UI widget system
+```
 
-## Creating Releases Manually
+### Creating Releases Manually
 
 To create a release for distribution:
 
@@ -192,3 +230,13 @@ To create a release for distribution:
    - Fill in the tag version (e.g., `v0.1.0`) and release title
    - Attach the archive files
    - Publish the release
+
+</details>
+
+## Resource Usage
+
+This application is designed to be extremely lightweight with minimal resource usage, making it suitable for embedded systems and devices with limited compute capabilities.
+
+## License
+
+This project is licensed under the Creative Commons CC0 1.0 Universal License - see the LICENSE file for details.
