@@ -12,9 +12,9 @@ USE_NVIDIA=${2:-default}  # default or nvidia
 # Determine platform
 PLATFORM="unknown"
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-  PLATFORM="linux-x86_64"
+  PLATFORM="linux"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
-  PLATFORM="macos-x86_64"
+  PLATFORM="macos"
 else
   echo "Unsupported platform: $OSTYPE"
   exit 1
@@ -59,17 +59,31 @@ echo "Extracting files..."
 tar -xzf "$TEMP_DIR/ezstats.tar.gz" -C "$TEMP_DIR"
 
 # Find the binary
-BINARY_PATH=""
 if [ "$USE_NVIDIA" = "nvidia" ]; then
-  BINARY_PATH=$(find "$TEMP_DIR" -name "ezstats-nvidia" -type f)
+  BINARY_DIR="$TEMP_DIR/ezstats/nvidia"
+  BINARY_NAME="ezstats-nvidia"
 else
-  BINARY_PATH=$(find "$TEMP_DIR" -name "ezstats" -type f | grep -v "nvidia")
+  BINARY_DIR="$TEMP_DIR/ezstats/default"
+  BINARY_NAME="ezstats"
 fi
 
-if [ -z "$BINARY_PATH" ]; then
+if [ ! -f "$BINARY_DIR/$BINARY_NAME" ]; then
   echo "Error: Could not find the ezstats binary in the downloaded package."
+  echo "Expected at: $BINARY_DIR/$BINARY_NAME"
   exit 1
 fi
+
+# Create installation directory if it doesn't exist
+mkdir -p "$INSTALL_DIR"
+
+# Copy the binary to the installation directory
+echo "Installing ezstats to $INSTALL_DIR..."
+cp "$BINARY_DIR/$BINARY_NAME" "$INSTALL_DIR/ezstats"
+chmod +x "$INSTALL_DIR/ezstats"
+
+# Clean up
+echo "Cleaning up temporary files..."
+rm -rf "$TEMP_DIR"
 
 # Create installation directory if it doesn't exist
 mkdir -p "$INSTALL_DIR"

@@ -37,6 +37,8 @@ You have two options for installing ezstats:
 
 ### Option 1: Install from pre-built binaries (recommended)
 
+Before using these scripts, make sure to download them from the repository:
+
 #### Linux/macOS
 
 ```bash
@@ -62,6 +64,8 @@ You have two options for installing ezstats:
 # Install specific version
 .\install_from_release.ps1 -Version 1.0.0
 ```
+
+**Note:** Before using the installation scripts, edit them to replace `GITHUB_USERNAME` with your actual GitHub username or organization name.
 
 ### Option 2: Build and install from source
 
@@ -151,25 +155,40 @@ You can modify the refresh rate by changing the millisecond value in the `System
 
 This application is designed to be extremely lightweight with minimal resource usage, making it suitable for embedded systems and devices with limited compute capabilities.
 
-## Continuous Integration / Deployment
+## Creating Releases Manually
 
-ezstats includes CI/CD configuration using GitHub Actions, which:
+To create a release for distribution:
 
-1. Builds the application for Linux, macOS, and Windows
-2. Creates both default and NVIDIA-enabled versions
-3. Runs tests and verifies the code
-4. Automatically creates releases with pre-built binaries when tags are pushed
+1. Build the binaries:
+   ```bash
+   # Default version
+   cargo build --release
+   
+   # NVIDIA version (if needed)
+   cargo build --release --features nvidia-gpu
+   ```
 
-### Creating a Release
+2. Package the binaries:
+   ```bash
+   # Create directory structure
+   mkdir -p release/ezstats/default
+   mkdir -p release/ezstats/nvidia
+   
+   # Copy binaries
+   cp target/release/ezstats release/ezstats/default/
+   cp target/release/ezstats release/ezstats/nvidia/ezstats-nvidia
+   
+   # Create archives
+   cd release
+   tar -czvf ezstats-${PLATFORM}-default.tar.gz ezstats/default
+   tar -czvf ezstats-${PLATFORM}-nvidia.tar.gz ezstats/nvidia
+   ```
+   Where `${PLATFORM}` is one of: `macos`, `linux`, or `windows`
 
-To create a new release:
-
-```bash
-# Tag the release
-git tag -a v1.0.0 -m "Release v1.0.0"
-
-# Push the tag
-git push origin v1.0.0
-```
-
-This will trigger the CI/CD pipeline to build the binaries and create a GitHub release with the pre-built packages.
+3. Upload the archives to GitHub:
+   - Go to your repository on GitHub
+   - Click on "Releases" in the right sidebar
+   - Click "Draft a new release" or "Create a new release"
+   - Fill in the tag version (e.g., `v0.1.0`) and release title
+   - Attach the archive files
+   - Publish the release
