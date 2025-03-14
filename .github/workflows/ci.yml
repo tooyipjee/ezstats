@@ -15,22 +15,14 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v2
     
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-    
-    # Cache dependencies - using newer actions/cache@v3
-    - name: Cache Rust dependencies
-      uses: actions/cache@v3
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
       with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-
+        profile: minimal
+        toolchain: stable
+        override: true
     
     # Build default version
     - name: Build (Default)
@@ -56,7 +48,7 @@ jobs:
     
     # Upload artifacts
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v2
       with:
         name: ezstats-macos-x86_64
         path: |
