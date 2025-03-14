@@ -10,16 +10,18 @@ TEMP_DIR="/tmp/ezstats-installer"
 USE_NVIDIA=${2:-default}  # default or nvidia
 GITHUB_REPO="tooyipjee/ezstats"  # Fixed to your actual GitHub repo
 
-# Determine platform
-PLATFORM="unknown"
+# Determine platform for user information
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-  PLATFORM="linux"
+  PLATFORM_INFO="Linux"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
-  PLATFORM="macos"
+  PLATFORM_INFO="macOS"
 else
   echo "Unsupported platform: $OSTYPE"
   exit 1
 fi
+
+# Always use the macOS package - works for both Linux and macOS
+PACKAGE_PLATFORM="macos"
 
 # Clean up any previous temp directory
 rm -rf "$TEMP_DIR"
@@ -28,11 +30,11 @@ mkdir -p "$TEMP_DIR"
 # Function to download and install the latest release
 install_latest() {
   echo "Fetching the latest release information..."
-  RELEASE_URL=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep "browser_download_url.*ezstats-$PLATFORM-$USE_NVIDIA" | cut -d '"' -f 4)
+  RELEASE_URL=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep "browser_download_url.*ezstats-$PACKAGE_PLATFORM-$USE_NVIDIA" | cut -d '"' -f 4)
   
   if [ -z "$RELEASE_URL" ]; then
-    echo "Error: Could not find a suitable release for $PLATFORM-$USE_NVIDIA."
-    echo "Looking for a file containing: ezstats-$PLATFORM-$USE_NVIDIA"
+    echo "Error: Could not find a suitable release for $PACKAGE_PLATFORM-$USE_NVIDIA."
+    echo "Looking for a file containing: ezstats-$PACKAGE_PLATFORM-$USE_NVIDIA"
     echo "Available files:"
     curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | grep "browser_download_url"
     exit 1
@@ -44,13 +46,13 @@ install_latest() {
 
 # Function to download and install a specific version
 install_version() {
-  RELEASE_URL="https://github.com/$GITHUB_REPO/releases/download/v$VERSION/ezstats-$PLATFORM-$USE_NVIDIA.tar.gz"
+  RELEASE_URL="https://github.com/$GITHUB_REPO/releases/download/v$VERSION/ezstats-$PACKAGE_PLATFORM-$USE_NVIDIA.tar.gz"
   echo "Downloading version $VERSION from: $RELEASE_URL"
   curl -L "$RELEASE_URL" -o "$TEMP_DIR/ezstats.tar.gz"
 }
 
 # Download the appropriate release
-echo "Installing ezstats ($PLATFORM, $USE_NVIDIA)..."
+echo "Installing ezstats for $PLATFORM_INFO..."
 
 if [ "$VERSION" = "latest" ]; then
   install_latest
@@ -119,4 +121,4 @@ else
 fi
 
 echo "Installation complete! You can now run 'ezstats' from anywhere."
-echo "Note: You installed the $USE_NVIDIA version of ezstats."
+echo "Note: You installed the $USE_NVIDIA version of ezstats for $PLATFORM_INFO."
