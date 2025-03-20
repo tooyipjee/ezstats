@@ -1,11 +1,18 @@
 # ezstats
 
-> A lightweight system monitoring tool for your terminal
+> A lightweight system monitoring tool for your terminal with interactive keyboard controls
 
 ![ezstats screenshot](assets/ezstats.png)
 
 ezstats is a simple, resource-efficient terminal application that displays real-time CPU, RAM, and GPU usage with a clean and colorful interface. Perfect for keeping an eye on system resources without the overhead of larger monitoring applications.
 
+## New Features in v0.2.0
+
+- 🎮 **Interactive keyboard controls** similar to lazygit
+- 🖥️ **Multiple views** for detailed system information
+- ⏯️ **Pause and resume** monitoring with a keypress
+- 🔄 **Manual refresh** when paused
+- ⌨️ **Intuitive keyboard shortcuts** for navigation
 
 ## Quick Start
 
@@ -29,6 +36,15 @@ Just type in your terminal:
 ezstats
 ```
 
+### Keyboard Controls
+
+- **Tab** - Next view
+- **Shift+Tab** - Previous view
+- **1-4** - Jump to specific view
+- **p** - Pause/resume automatic updates
+- **r** - Force refresh now
+- **q / Esc / Ctrl+c** - Quit
+
 ### Uninstalling
 
 #### Linux/macOS
@@ -50,6 +66,7 @@ Invoke-WebRequest -Uri https://raw.githubusercontent.com/tooyipjee/ezstats/main/
 - 🌈 **Color-coded metrics** for quick assessment (green/yellow/red)
 - 🪶 **Extremely lightweight** - perfect for embedded systems and resource-limited environments
 - 💻 **Cross-platform** - works on Linux, macOS, and Windows
+- 📱 **Keyboard-driven interface** - navigate between views with ease
 
 ## Advanced Information
 
@@ -165,6 +182,15 @@ The system monitor uses a widget-based UI system that provides:
 - Color-coded bar charts (green/yellow/red based on utilization levels)
 - Clean sections for CPU, memory, and GPU metrics
 - Real-time updates with configurable refresh rate
+- Interactive keyboard-driven navigation
+
+### Interactive Views
+
+- **Overview**: Quick summary of all system stats
+- **CPU Details**: Detailed view of overall CPU and per-core usage
+- **Memory Details**: Memory consumption with usage percentage
+- **GPU Details**: NVIDIA or Apple GPU metrics (if available)
+- **Help**: Keyboard shortcut reference
 
 ### Customization
 
@@ -190,6 +216,7 @@ ezstats/
 │   ├── main.rs         # Main entry point and system monitoring logic
 │   ├── gpu.rs          # NVIDIA GPU monitoring module
 │   ├── mac_gpu.rs      # Apple GPU monitoring module
+│   ├── ui.rs           # Interactive UI system
 │   └── widget.rs       # Terminal UI widget system
 ```
 
@@ -227,7 +254,7 @@ To create a release for distribution:
    - Go to your repository on GitHub
    - Click on "Releases" in the right sidebar
    - Click "Draft a new release" or "Create a new release"
-   - Fill in the tag version (e.g., `v0.1.0`) and release title
+   - Fill in the tag version (e.g., `v0.2.0`) and release title
    - Attach the archive files
    - Publish the release
 

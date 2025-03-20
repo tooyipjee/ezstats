@@ -1,29 +1,34 @@
-// system_monitor.rs
-// A simple, lightweight system monitoring tool written in Rust that displays
-// real-time CPU, RAM, and GPU usage statistics in the terminal with visual widgets.
+// ezstats - A lightweight system monitoring tool
+// A terminal-based system monitor with interactive UI for displaying
+// real-time CPU, RAM, and GPU usage statistics
+
 use sysinfo::{System, SystemExt, CpuExt};
 use std::{io, thread, time::Duration};
 use crossterm::{
     execute,
-    terminal::{Clear, ClearType},
-    cursor::MoveTo,
+    terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+    cursor::{MoveTo, Hide, Show},
     style::{Color, Print, ResetColor, SetForegroundColor},
+    event::{self, Event, KeyCode, KeyModifiers},
 };
 
 mod gpu;
-mod widget;  // Add the widget module
+mod widget;
+mod ui;  // New UI module
+
 #[cfg(feature = "apple-gpu")]
-mod mac_gpu;  // Add the macOS GPU module
+mod mac_gpu;
 
 use gpu::GpuMonitor;
-use widget::{Widget, BarChart};  // Import the widget traits
+use widget::{Widget, BarChart};
+use ui::{UiState, ViewType};
 
 #[cfg(feature = "nvidia-gpu")]
 use gpu::GpuInfo;
 #[cfg(feature = "apple-gpu")]
 use mac_gpu::{MacGpuMonitor, MacGpuInfo};
 
-// No lifetime required anymore
+// System monitor with improved error handling and no lifetime requirements
 struct SystemMonitor {
     system: System,
     refresh_rate: Duration,
@@ -113,146 +118,146 @@ impl SystemMonitor {
         }
     }
     
-    /// Display system information in the terminal
+    /// Run the interactive display loop
     fn display(&mut self) -> io::Result<()> {
+        // Setup terminal
+        terminal::enable_raw_mode()?;
         let mut stdout = io::stdout();
+        execute!(stdout, EnterAlternateScreen, Hide)?;
         
-        loop {
-            // Refresh system data
-            self.refresh();
+        // Create UI state
+        let mut ui_state = UiState::new();
+        
+        // Process events and update display
+        let result = self.run_event_loop(&mut stdout, &mut ui_state);
+        
+        // Clean up terminal before returning
+        execute!(stdout, Show, LeaveAlternateScreen)?;
+        terminal::disable_raw_mode()?;
+        
+        // Propagate any errors from the event loop
+        result
+    }
+    
+    /// Main event loop - handles keyboard events and updates display
+    fn run_event_loop<W: io::Write>(&mut self, stdout: &mut W, ui_state: &mut UiState) -> io::Result<()> {
+        while ui_state.running {
+            // Check if we need to update system data
+            let needs_update = ui_state.should_update(self.refresh_rate);
             
-            // Get system metrics
-            let (cpu_per_core, cpu_overall) = self.get_cpu_usage();
-            let (total_mem, used_mem, mem_usage) = self.get_memory_info();
-            
-            // Clear screen and reset cursor
-            execute!(stdout, Clear(ClearType::All), MoveTo(0, 0))?;
-            
-            // Display CPU information
-            execute!(
-                stdout,
-                SetForegroundColor(Color::Cyan),
-                Print("=== CPU USAGE ===\n"),
-                ResetColor
-            )?;
-            
-            // Draw overall CPU usage bar chart
-            let cpu_chart = BarChart::new("Overall CPU", cpu_overall, 40);
-            cpu_chart.draw(&mut stdout)?;
-            
-            execute!(stdout, Print("\n"))?;
-            
-            // Draw individual core bar charts
-            for (i, usage) in cpu_per_core.iter().enumerate() {
-                let core_chart = BarChart::new(&format!("Core #{}", i), *usage, 40);
-                core_chart.draw(&mut stdout)?;
-            }
-            
-            // Display Memory information
-            execute!(
-                stdout,
-                Print("\n"),
-                SetForegroundColor(Color::Cyan),
-                Print("=== MEMORY USAGE ===\n"),
-                ResetColor,
-                Print(format!(
-                    "Total Memory: {} MB\n", total_mem
-                )),
-                Print(format!(
-                    "Used Memory:  {} MB\n", used_mem
-                ))
-            )?;
-            
-            // Draw memory usage bar chart
-            let mem_chart = BarChart::new("Memory", mem_usage, 40);
-            mem_chart.draw(&mut stdout)?;
-            
-            // Display NVIDIA GPU information if available
-            #[cfg(feature = "nvidia-gpu")]
-            {
-                if let Some(_) = &self.gpu_monitor {
-                    let gpu_info = self.get_gpu_info();
+            // Use a shorter polling timeout to improve responsiveness
+            // This ensures we catch key presses more quickly
+            if crossterm::event::poll(Duration::from_millis(50))? {
+                if let crossterm::event::Event::Key(key_event) = crossterm::event::read()? {
+                    // Process key event - returns true if UI needs updating
+                    let ui_changed = ui::handle_key_event(key_event, ui_state);
                     
-                    if !gpu_info.is_empty() {
-                        execute!(
-                            stdout,
-                            Print("\n"),
-                            SetForegroundColor(Color::Cyan),
-                            Print("=== NVIDIA GPU USAGE ===\n"),
-                            ResetColor
-                        )?;
-                        
-                        for (i, gpu) in gpu_info.iter().enumerate() {
-                            execute!(
-                                stdout,
-                                Print(format!("GPU #{}: {}\n", i, gpu.name)),
-                                Print(format!("Temperature: {}°C\n", gpu.temperature))
-                            )?;
-                            
-                            // Draw GPU utilization bar chart
-                            let gpu_util_chart = BarChart::new("GPU Utilization", gpu.utilization, 40);
-                            gpu_util_chart.draw(&mut stdout)?;
-                            
-                            // Draw GPU memory usage bar chart
-                            let gpu_mem_chart = BarChart::new("GPU Memory", gpu.memory_usage, 40);
-                            gpu_mem_chart.draw(&mut stdout)?;
-                            
-                            execute!(stdout, Print("\n"))?;
-                        }
+                    // If the quit key was pressed, exit the loop immediately
+                    if !ui_state.running {
+                        break;
+                    }
+                    
+                    // If UI changed, force an update
+                    if ui_changed {
+                        self.render_current_view(stdout, ui_state)?;
                     }
                 }
             }
             
-            // Display Apple GPU information if available
-            #[cfg(feature = "apple-gpu")]
-            {
-                if let Some(_) = &self.mac_gpu_monitor {
-                    let gpu_info = self.get_mac_gpu_info();
-                    
-                    if !gpu_info.is_empty() {
-                        execute!(
-                            stdout,
-                            Print("\n"),
-                            SetForegroundColor(Color::Cyan),
-                            Print("=== APPLE GPU USAGE ===\n"),
-                            ResetColor
-                        )?;
-                        
-                        for (i, gpu) in gpu_info.iter().enumerate() {
-                            execute!(
-                                stdout,
-                                Print(format!("GPU #{}: {}\n", i, gpu.name)),
-                                Print(format!("Type: {}\n", 
-                                    if gpu.is_headless { "Headless" } 
-                                    else if gpu.is_low_power { "Integrated/Low Power" } 
-                                    else { "Discrete/High Performance" }
-                                ))
-                            )?;
-                            
-                            // Draw GPU utilization bar chart (estimated)
-                            let gpu_util_chart = BarChart::new("GPU Utilization (est.)", gpu.utilization, 40);
-                            gpu_util_chart.draw(&mut stdout)?;
-                            
-                            // Show total memory
-                            execute!(
-                                stdout,
-                                Print(format!("Total Memory: {} MB\n\n", gpu.total_memory))
-                            )?;
-                        }
-                    }
-                }
+            // Update system data if needed
+            if needs_update && ui_state.automatic_refresh {
+                self.refresh();
+                ui_state.mark_updated();
+                
+                // Render current view
+                self.render_current_view(stdout, ui_state)?;
             }
-            
-            // Wait for next refresh
-            thread::sleep(self.refresh_rate);
         }
+        
+        Ok(())
+    }
+    
+    /// Render the current view based on UI state
+    fn render_current_view<W: io::Write>(&self, stdout: &mut W, ui_state: &UiState) -> io::Result<()> {
+        // Draw common UI frame
+        ui::draw_ui_frame(stdout, ui_state)?;
+        
+        // Get current system metrics
+        let (cpu_per_core, cpu_overall) = self.get_cpu_usage();
+        let (total_mem, used_mem, mem_usage) = self.get_memory_info();
+        
+        // Get GPU data if available
+        #[cfg(feature = "nvidia-gpu")]
+        let gpu_info = self.get_gpu_info();
+        
+        #[cfg(feature = "apple-gpu")]
+        let mac_gpu_info = self.get_mac_gpu_info();
+        
+        // Draw the appropriate view based on current state
+        match ui_state.views.current() {
+            ViewType::Overview => {
+                ui::draw_overview_view(
+                    stdout, 
+                    cpu_overall, 
+                    mem_usage,
+                    #[cfg(feature = "nvidia-gpu")]
+                    &gpu_info,
+                    #[cfg(feature = "apple-gpu")]
+                    &mac_gpu_info,
+                )?;
+            },
+            ViewType::CpuDetailed => {
+                ui::draw_cpu_view(stdout, cpu_overall, &cpu_per_core)?;
+            },
+            ViewType::MemoryDetailed => {
+                ui::draw_memory_view(stdout, total_mem, used_mem, mem_usage)?;
+            },
+            #[cfg(any(feature = "nvidia-gpu", feature = "apple-gpu"))]
+            ViewType::GpuDetailed => {
+                ui::draw_gpu_view(
+                    stdout,
+                    #[cfg(feature = "nvidia-gpu")]
+                    &gpu_info,
+                    #[cfg(feature = "apple-gpu")]
+                    &mac_gpu_info,
+                )?;
+            },
+            ViewType::Help => {
+                ui::draw_help_view(stdout)?;
+            },
+        }
+        
+        stdout.flush()?;
+        Ok(())
     }
 }
 
 fn main() -> io::Result<()> {
+    // Handle unexpected errors gracefully
+    match run_app() {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            // Make sure we restore terminal state on error
+            if let Err(term_err) = cleanup_terminal() {
+                eprintln!("Failed to clean up terminal: {}", term_err);
+            }
+            Err(e)
+        }
+    }
+}
+
+// The actual application logic
+fn run_app() -> io::Result<()> {
     // Create system monitor with 1000ms (1 second) refresh rate
     let mut monitor = SystemMonitor::new(1000);
     
-    // Run the display loop
+    // Run the interactive display loop
     monitor.display()
+}
+
+// Clean up the terminal state in case of error
+fn cleanup_terminal() -> io::Result<()> {
+    let mut stdout = io::stdout();
+    execute!(stdout, Show, LeaveAlternateScreen)?;
+    terminal::disable_raw_mode()
 }
