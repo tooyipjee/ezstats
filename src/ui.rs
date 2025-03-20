@@ -516,11 +516,12 @@ pub fn draw_gpu_view<W: Write>(
         return Ok(());
     }
     
-    // Display GPU information
+            // Display GPU information
     for (i, gpu) in gpu_info.iter().enumerate() {
         // GPU vendor label
         let vendor_label = match gpu.vendor {
             GpuVendor::Nvidia => "NVIDIA GPU",
+            GpuVendor::Apple => "Apple GPU",
             GpuVendor::Other => "GPU",
             GpuVendor::None => "Unknown GPU",
         };
@@ -555,6 +556,24 @@ pub fn draw_gpu_view<W: Write>(
                 stdout,
                 MoveTo(content_start_x, current_row),
                 Print(format!("│ {:20} │ {:16} │", "Temperature:", format!("{}°C", gpu.temperature))),
+            )?;
+            current_row += 1;
+        }
+        
+        // Show Apple-specific properties for Apple GPUs
+        if gpu.vendor == GpuVendor::Apple {
+            let gpu_type = if gpu.is_headless { 
+                "Headless" 
+            } else if gpu.is_low_power { 
+                "Integrated/Low Power" 
+            } else { 
+                "Discrete/High Performance" 
+            };
+            
+            execute!(
+                stdout,
+                MoveTo(content_start_x, current_row),
+                Print(format!("│ {:20} │ {:16} │", "Type:", gpu_type)),
             )?;
             current_row += 1;
         }
@@ -622,7 +641,11 @@ pub fn draw_no_gpu_view<W: Write>(stdout: &mut W) -> io::Result<()> {
         MoveTo(content_start_x, content_start_y),
         Print("No compatible GPUs detected on your system."),
         MoveTo(content_start_x, content_start_y + 2),
-        Print("ezstats currently supports NVIDIA GPUs with appropriate drivers installed.")
+        Print("ezstats currently supports:"),
+        MoveTo(content_start_x, content_start_y + 3),
+        Print("  - NVIDIA GPUs with appropriate drivers installed"),
+        MoveTo(content_start_x, content_start_y + 4),
+        Print("  - Apple Silicon M-series and Intel Macs with Metal support")
     )?;
     
     Ok(())
