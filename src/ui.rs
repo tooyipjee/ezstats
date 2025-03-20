@@ -1,12 +1,12 @@
 // src/ui.rs
 //
 // Interactive UI system with views and keyboard navigation
-// Inspired by TUI applications like lazygit
+// Simplified to remove feature flags and unify GPU display
 
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    event::{KeyCode, KeyEvent, KeyModifiers},
     style::{Color, Print, ResetColor, SetForegroundColor},
     terminal::{Clear, ClearType},
     cursor::MoveTo,
@@ -14,11 +14,7 @@ use crossterm::{
 };
 
 use crate::widget::Widget;
-use crate::gpu::GpuMonitor;
-#[cfg(feature = "nvidia-gpu")]
-use crate::gpu::GpuInfo;
-#[cfg(feature = "apple-gpu")]
-use crate::mac_gpu::{MacGpuMonitor, MacGpuInfo};
+use crate::gpu::{GpuInfo, GpuVendor};
 use crate::widget::BarChart;
 
 // View types that can be displayed
@@ -27,7 +23,6 @@ pub enum ViewType {
     Overview,
     CpuDetailed,
     MemoryDetailed,
-    #[cfg(any(feature = "nvidia-gpu", feature = "apple-gpu"))]
     GpuDetailed,
     Help,
 }
@@ -39,7 +34,6 @@ impl ViewType {
             ViewType::Overview => "Overview",
             ViewType::CpuDetailed => "CPU Details",
             ViewType::MemoryDetailed => "Memory Details",
-            #[cfg(any(feature = "nvidia-gpu", feature = "apple-gpu"))]
             ViewType::GpuDetailed => "GPU Details",
             ViewType::Help => "Help",
         }
@@ -53,15 +47,17 @@ pub struct Views {
 }
 
 impl Views {
-    pub fn new() -> Self {
+    pub fn new(has_gpu: bool) -> Self {
         let mut available = vec![
             ViewType::Overview,
             ViewType::CpuDetailed,
             ViewType::MemoryDetailed,
         ];
         
-        #[cfg(any(feature = "nvidia-gpu", feature = "apple-gpu"))]
-        available.push(ViewType::GpuDetailed);
+        // Add GPU view if we have a GPU
+        if has_gpu {
+            available.push(ViewType::GpuDetailed);
+        }
         
         available.push(ViewType::Help);
         
@@ -110,9 +106,9 @@ pub struct UiState {
 }
 
 impl UiState {
-    pub fn new() -> Self {
+    pub fn new(has_gpu: bool) -> Self {
         UiState {
-            views: Views::new(),
+            views: Views::new(has_gpu),
             running: true,
             automatic_refresh: true,
             last_update: Instant::now(),
@@ -150,7 +146,6 @@ pub fn handle_key_event(key_event: KeyEvent, state: &mut UiState) -> bool {
         KeyCode::Char('1') => state.views.go_to(ViewType::Overview),
         KeyCode::Char('2') => state.views.go_to(ViewType::CpuDetailed),
         KeyCode::Char('3') => state.views.go_to(ViewType::MemoryDetailed),
-        #[cfg(any(feature = "nvidia-gpu", feature = "apple-gpu"))]
         KeyCode::Char('4') => state.views.go_to(ViewType::GpuDetailed),
         KeyCode::Char('?') | KeyCode::Char('h') => state.views.go_to(ViewType::Help),
         
@@ -313,10 +308,7 @@ pub fn draw_overview_view<W: Write>(
     stdout: &mut W, 
     cpu_usage: f32,
     memory_usage: f32,
-    #[cfg(feature = "nvidia-gpu")]
     gpu_info: &[GpuInfo],
-    #[cfg(feature = "apple-gpu")]
-    mac_gpu_info: &[MacGpuInfo],
 ) -> io::Result<()> {
     // Get terminal dimensions to properly size content
     let (term_width, term_height) = match crossterm::terminal::size() {
@@ -349,7 +341,6 @@ pub fn draw_overview_view<W: Write>(
     current_row += 2;
     
     // Draw GPU usage if available
-    #[cfg(feature = "nvidia-gpu")]
     if !gpu_info.is_empty() {
         for (i, gpu) in gpu_info.iter().enumerate().take(1) { // Just show the first GPU in overview
             execute!(stdout, MoveTo(content_start_x, current_row))?;
@@ -360,16 +351,6 @@ pub fn draw_overview_view<W: Write>(
             execute!(stdout, MoveTo(content_start_x, current_row))?;
             let gpu_mem_chart = BarChart::new(&format!("GPU #{} Memory", i), gpu.memory_usage, bar_width);
             gpu_mem_chart.draw(stdout)?;
-            current_row += 2;
-        }
-    }
-    
-    #[cfg(feature = "apple-gpu")]
-    if !mac_gpu_info.is_empty() {
-        for (i, gpu) in mac_gpu_info.iter().enumerate().take(1) { // Just show the first GPU in overview
-            execute!(stdout, MoveTo(content_start_x, current_row))?;
-            let gpu_usage_chart = BarChart::new(&format!("GPU #{} Usage", i), gpu.utilization, bar_width);
-            gpu_usage_chart.draw(stdout)?;
             current_row += 2;
         }
     }
@@ -500,14 +481,10 @@ pub fn draw_memory_view<W: Write>(
     Ok(())
 }
 
-// Draw GPU-specific view
-#[cfg(any(feature = "nvidia-gpu", feature = "apple-gpu"))]
+// Draw GPU-specific view - unified for all GPU types
 pub fn draw_gpu_view<W: Write>(
     stdout: &mut W,
-    #[cfg(feature = "nvidia-gpu")]
     gpu_info: &[GpuInfo],
-    #[cfg(feature = "apple-gpu")]
-    mac_gpu_info: &[MacGpuInfo],
 ) -> io::Result<()> {
     // Get terminal dimensions to properly size content
     let (term_width, term_height) = match crossterm::terminal::size() {
@@ -527,153 +504,126 @@ pub fn draw_gpu_view<W: Write>(
     let content_start_y = 3;
     let mut current_row = content_start_y;
     
-    let has_gpu_info = 
-        #[cfg(feature = "nvidia-gpu")]
-        !gpu_info.is_empty() ||
-        #[cfg(feature = "apple-gpu")]
-        !mac_gpu_info.is_empty();
-    
-    #[cfg(not(any(feature = "nvidia-gpu", feature = "apple-gpu")))]
-    let has_gpu_info = false;
-    
-    if !has_gpu_info {
+    if gpu_info.is_empty() {
+        // Show a message if no GPUs are available
         execute!(
             stdout,
             MoveTo(content_start_x, current_row),
-            Print("No GPU monitoring available.\n"),
+            Print("No GPU monitoring available."),
             MoveTo(content_start_x, current_row + 1),
-            Print("Rebuild with --features nvidia-gpu or --features apple-gpu to enable.")
+            Print("No compatible GPUs detected on your system.")
         )?;
         return Ok(());
     }
     
-    // Display NVIDIA GPU information if available
-    #[cfg(feature = "nvidia-gpu")]
-    if !gpu_info.is_empty() {
+    // Display GPU information
+    for (i, gpu) in gpu_info.iter().enumerate() {
+        // GPU vendor label
+        let vendor_label = match gpu.vendor {
+            GpuVendor::Nvidia => "NVIDIA GPU",
+            GpuVendor::Other => "GPU",
+            GpuVendor::None => "Unknown GPU",
+        };
+        
         execute!(
             stdout,
             MoveTo(content_start_x, current_row),
             SetForegroundColor(Color::Green),
-            Print("=== NVIDIA GPUs ==="),
+            Print(format!("=== {} #{} ===", vendor_label, i)),
             ResetColor
         )?;
         current_row += 2;
         
-        for (i, gpu) in gpu_info.iter().enumerate() {
-            // GPU info table
-            execute!(
-                stdout,
-                MoveTo(content_start_x, current_row),
-                Print(format!("┌{:─^40}┐", "")),
-            )?;
-            current_row += 1;
-            
-            execute!(
-                stdout,
-                MoveTo(content_start_x, current_row),
-                Print(format!("│ {:^40} │", format!("GPU #{}: {}", i, gpu.name))),
-            )?;
-            current_row += 1;
-            
+        // GPU info table
+        execute!(
+            stdout,
+            MoveTo(content_start_x, current_row),
+            Print(format!("┌{:─^40}┐", "")),
+        )?;
+        current_row += 1;
+        
+        execute!(
+            stdout,
+            MoveTo(content_start_x, current_row),
+            Print(format!("│ {:^40} │", gpu.name)),
+        )?;
+        current_row += 1;
+        
+        // Only show temperature for NVIDIA GPUs
+        if gpu.vendor == GpuVendor::Nvidia {
             execute!(
                 stdout,
                 MoveTo(content_start_x, current_row),
                 Print(format!("│ {:20} │ {:16} │", "Temperature:", format!("{}°C", gpu.temperature))),
             )?;
             current_row += 1;
-            
+        }
+        
+        execute!(
+            stdout,
+            MoveTo(content_start_x, current_row),
+            Print(format!("│ {:20} │ {:16} │", "Memory:", format!("{} MB", gpu.total_memory))),
+        )?;
+        current_row += 1;
+        
+        if gpu.vendor == GpuVendor::Nvidia {
             execute!(
                 stdout,
                 MoveTo(content_start_x, current_row),
                 Print(format!("│ {:20} │ {:16} │", "Memory Usage:", format!("{} / {} MB", gpu.used_memory, gpu.total_memory))),
             )?;
             current_row += 1;
-            
-            execute!(
-                stdout,
-                MoveTo(content_start_x, current_row),
-                Print(format!("└{:─^40}┘", "")),
-            )?;
-            current_row += 2;
-            
-            // Draw GPU utilization bar chart
-            execute!(stdout, MoveTo(content_start_x, current_row))?;
-            let gpu_util_chart = BarChart::new("GPU Utilization", gpu.utilization, bar_width);
-            gpu_util_chart.draw(stdout)?;
-            current_row += 1;
-            
-            // Draw GPU memory usage bar chart
-            execute!(stdout, MoveTo(content_start_x, current_row))?;
-            let gpu_mem_chart = BarChart::new("GPU Memory", gpu.memory_usage, bar_width);
-            gpu_mem_chart.draw(stdout)?;
-            current_row += 2;
         }
-    }
-    
-    // Display Apple GPU information if available
-    #[cfg(feature = "apple-gpu")]
-    if !mac_gpu_info.is_empty() {
+        
         execute!(
             stdout,
             MoveTo(content_start_x, current_row),
-            SetForegroundColor(Color::Green),
-            Print("=== Apple GPUs ==="),
-            ResetColor
+            Print(format!("└{:─^40}┘", "")),
         )?;
         current_row += 2;
         
-        for (i, gpu) in mac_gpu_info.iter().enumerate() {
-            // GPU info table
-            execute!(
-                stdout,
-                MoveTo(content_start_x, current_row),
-                Print(format!("┌{:─^40}┐", "")),
-            )?;
-            current_row += 1;
-            
-            execute!(
-                stdout,
-                MoveTo(content_start_x, current_row),
-                Print(format!("│ {:^40} │", format!("GPU #{}: {}", i, gpu.name))),
-            )?;
-            current_row += 1;
-            
-            let gpu_type = if gpu.is_headless { 
-                "Headless" 
-            } else if gpu.is_low_power { 
-                "Integrated/Low Power" 
-            } else { 
-                "Discrete/High Performance" 
-            };
-            
-            execute!(
-                stdout,
-                MoveTo(content_start_x, current_row),
-                Print(format!("│ {:20} │ {:16} │", "Type:", gpu_type)),
-            )?;
-            current_row += 1;
-            
-            execute!(
-                stdout,
-                MoveTo(content_start_x, current_row),
-                Print(format!("│ {:20} │ {:16} │", "Total Memory:", format!("{} MB", gpu.total_memory))),
-            )?;
-            current_row += 1;
-            
-            execute!(
-                stdout,
-                MoveTo(content_start_x, current_row),
-                Print(format!("└{:─^40}┘", "")),
-            )?;
-            current_row += 2;
-            
-            // Draw GPU utilization bar chart
+        // Draw GPU utilization bar chart
+        execute!(stdout, MoveTo(content_start_x, current_row))?;
+        let gpu_util_chart = BarChart::new("GPU Utilization", gpu.utilization, bar_width);
+        gpu_util_chart.draw(stdout)?;
+        current_row += 1;
+        
+        // Draw GPU memory usage bar chart for NVIDIA
+        if gpu.vendor == GpuVendor::Nvidia {
             execute!(stdout, MoveTo(content_start_x, current_row))?;
-            let gpu_util_chart = BarChart::new("GPU Utilization", gpu.utilization, bar_width);
-            gpu_util_chart.draw(stdout)?;
-            current_row += 2;
+            let gpu_mem_chart = BarChart::new("GPU Memory", gpu.memory_usage, bar_width);
+            gpu_mem_chart.draw(stdout)?;
         }
+        
+        current_row += 2;
     }
+    
+    Ok(())
+}
+
+// Draw view for when no GPU is available
+pub fn draw_no_gpu_view<W: Write>(stdout: &mut W) -> io::Result<()> {
+    // Get terminal dimensions to properly size content
+    let (term_width, term_height) = match crossterm::terminal::size() {
+        Ok((w, h)) => (w as usize, h as usize),
+        Err(_) => (80, 24), // Fallback to a reasonable default
+    };
+    
+    // Create a content area with a border
+    draw_content_box(stdout, "GPU Details", 2, term_height as u16 - 3)?;
+    
+    // Start content 1 row below the header, 2 columns in from the left
+    let content_start_x = 2;
+    let content_start_y = 3;
+    
+    // Show a message that no GPU is available
+    execute!(
+        stdout,
+        MoveTo(content_start_x, content_start_y),
+        Print("No compatible GPUs detected on your system."),
+        MoveTo(content_start_x, content_start_y + 2),
+        Print("ezstats currently supports NVIDIA GPUs with appropriate drivers installed.")
+    )?;
     
     Ok(())
 }
@@ -701,8 +651,7 @@ pub fn draw_help_view<W: Write>(stdout: &mut W) -> io::Result<()> {
         ("  1", "Overview"),
         ("  2", "CPU details"),
         ("  3", "Memory details"),
-        #[cfg(any(feature = "nvidia-gpu", feature = "apple-gpu"))]
-        ("  4", "GPU details"),
+        ("  4", "GPU details (if available)"),
         ("  ? or h", "Show this help"),
         ("", ""),
         ("Controls", ""),

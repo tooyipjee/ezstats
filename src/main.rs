@@ -14,62 +14,37 @@ use crossterm::{
 
 mod gpu;
 mod widget;
-mod ui;  // New UI module
+mod ui;
 
-#[cfg(feature = "apple-gpu")]
-mod mac_gpu;
-
-use gpu::GpuMonitor;
+use gpu::{GpuMonitor, GpuInfo, GpuVendor};
 use widget::{Widget, BarChart};
 use ui::{UiState, ViewType};
 
-#[cfg(feature = "nvidia-gpu")]
-use gpu::GpuInfo;
-#[cfg(feature = "apple-gpu")]
-use mac_gpu::{MacGpuMonitor, MacGpuInfo};
-
-// System monitor with improved error handling and no lifetime requirements
+// Simplified system monitor with unified GPU detection
 struct SystemMonitor {
     system: System,
     refresh_rate: Duration,
-    #[cfg(feature = "nvidia-gpu")]
-    gpu_monitor: Option<GpuMonitor>,
-    #[cfg(feature = "apple-gpu")]
-    mac_gpu_monitor: Option<MacGpuMonitor>,
+    gpu_monitor: GpuMonitor,
 }
 
 impl SystemMonitor {
     /// Create a new SystemMonitor with the given refresh rate in milliseconds
     fn new(refresh_ms: u64) -> Self {
+        // Initialize system information
         let mut system = System::new_all();
-        // Initial system info refresh
         system.refresh_all();
         
-        #[cfg(feature = "nvidia-gpu")]
-        let gpu_monitor = match GpuMonitor::new() {
-            Ok(monitor) => Some(monitor),
-            Err(e) => {
-                eprintln!("Failed to initialize NVIDIA GPU monitoring: {:?}", e);
-                None
-            }
-        };
+        // Initialize GPU monitoring with automatic detection
+        let gpu_monitor = GpuMonitor::new();
         
-        #[cfg(feature = "apple-gpu")]
-        let mac_gpu_monitor = match MacGpuMonitor::new() {
-            Ok(monitor) => Some(monitor),
-            Err(e) => {
-                eprintln!("Failed to initialize Apple GPU monitoring: {}", e);
-                None
-            }
-        };
+        // Log detected hardware
+        println!("Detected {} CPU cores", system.cpus().len());
+        println!("Detected {} GPUs", gpu_monitor.device_count());
         
         SystemMonitor {
             system,
             refresh_rate: Duration::from_millis(refresh_ms),
-            #[cfg(feature = "nvidia-gpu")]
             gpu_monitor,
-            #[cfg(feature = "apple-gpu")]
-            mac_gpu_monitor,
         }
     }
     
@@ -84,7 +59,11 @@ impl SystemMonitor {
             .map(|cpu| cpu.cpu_usage())
             .collect();
             
-        let overall_usage = per_cpu.iter().sum::<f32>() / per_cpu.len() as f32;
+        let overall_usage = if per_cpu.is_empty() {
+            0.0
+        } else {
+            per_cpu.iter().sum::<f32>() / per_cpu.len() as f32
+        };
         
         (per_cpu, overall_usage)
     }
@@ -93,29 +72,23 @@ impl SystemMonitor {
     fn get_memory_info(&self) -> (u64, u64, f32) {
         let total_mem = self.system.total_memory() / 1024 / 1024; // Convert to MB
         let used_mem = self.system.used_memory() / 1024 / 1024;   // Convert to MB
-        let mem_usage_pct = (used_mem as f32 / total_mem as f32) * 100.0;
+        let mem_usage_pct = if total_mem > 0 {
+            (used_mem as f32 / total_mem as f32) * 100.0
+        } else {
+            0.0
+        };
         
         (total_mem, used_mem, mem_usage_pct)
     }
     
-    /// Get NVIDIA GPU information
-    #[cfg(feature = "nvidia-gpu")]
+    /// Get GPU information
     fn get_gpu_info(&self) -> Vec<GpuInfo> {
-        if let Some(gpu_monitor) = &self.gpu_monitor {
-            gpu_monitor.get_gpu_info()
-        } else {
-            Vec::new()
-        }
+        self.gpu_monitor.get_gpu_info()
     }
     
-    /// Get Apple GPU information
-    #[cfg(feature = "apple-gpu")]
-    fn get_mac_gpu_info(&self) -> Vec<MacGpuInfo> {
-        if let Some(gpu_monitor) = &self.mac_gpu_monitor {
-            gpu_monitor.get_gpu_info()
-        } else {
-            Vec::new()
-        }
+    /// Check if there are any GPUs available
+    fn has_gpus(&self) -> bool {
+        self.gpu_monitor.has_gpus()
     }
     
     /// Run the interactive display loop
@@ -126,7 +99,7 @@ impl SystemMonitor {
         execute!(stdout, EnterAlternateScreen, Hide)?;
         
         // Create UI state
-        let mut ui_state = UiState::new();
+        let mut ui_state = UiState::new(self.has_gpus());
         
         // Process events and update display
         let result = self.run_event_loop(&mut stdout, &mut ui_state);
@@ -146,7 +119,6 @@ impl SystemMonitor {
             let needs_update = ui_state.should_update(self.refresh_rate);
             
             // Use a shorter polling timeout to improve responsiveness
-            // This ensures we catch key presses more quickly
             if crossterm::event::poll(Duration::from_millis(50))? {
                 if let crossterm::event::Event::Key(key_event) = crossterm::event::read()? {
                     // Process key event - returns true if UI needs updating
@@ -186,12 +158,8 @@ impl SystemMonitor {
         let (cpu_per_core, cpu_overall) = self.get_cpu_usage();
         let (total_mem, used_mem, mem_usage) = self.get_memory_info();
         
-        // Get GPU data if available
-        #[cfg(feature = "nvidia-gpu")]
+        // Get GPU data
         let gpu_info = self.get_gpu_info();
-        
-        #[cfg(feature = "apple-gpu")]
-        let mac_gpu_info = self.get_mac_gpu_info();
         
         // Draw the appropriate view based on current state
         match ui_state.views.current() {
@@ -200,10 +168,7 @@ impl SystemMonitor {
                     stdout, 
                     cpu_overall, 
                     mem_usage,
-                    #[cfg(feature = "nvidia-gpu")]
                     &gpu_info,
-                    #[cfg(feature = "apple-gpu")]
-                    &mac_gpu_info,
                 )?;
             },
             ViewType::CpuDetailed => {
@@ -212,15 +177,12 @@ impl SystemMonitor {
             ViewType::MemoryDetailed => {
                 ui::draw_memory_view(stdout, total_mem, used_mem, mem_usage)?;
             },
-            #[cfg(any(feature = "nvidia-gpu", feature = "apple-gpu"))]
             ViewType::GpuDetailed => {
-                ui::draw_gpu_view(
-                    stdout,
-                    #[cfg(feature = "nvidia-gpu")]
-                    &gpu_info,
-                    #[cfg(feature = "apple-gpu")]
-                    &mac_gpu_info,
-                )?;
+                if self.has_gpus() {
+                    ui::draw_gpu_view(stdout, &gpu_info)?;
+                } else {
+                    ui::draw_no_gpu_view(stdout)?;
+                }
             },
             ViewType::Help => {
                 ui::draw_help_view(stdout)?;
@@ -241,6 +203,7 @@ fn main() -> io::Result<()> {
             if let Err(term_err) = cleanup_terminal() {
                 eprintln!("Failed to clean up terminal: {}", term_err);
             }
+            eprintln!("Error: {}", e);
             Err(e)
         }
     }

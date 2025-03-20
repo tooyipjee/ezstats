@@ -1,56 +1,84 @@
-// gpu.rs - Enhanced with better error handling and stability improvements
+// gpu.rs - Simplified GPU monitoring with runtime detection
 
-#[cfg(feature = "nvidia-gpu")]
-use nvml_wrapper::Nvml;
-#[cfg(feature = "nvidia-gpu")]
-use std::sync::Arc;
-#[cfg(feature = "nvidia-gpu")]
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "nvidia-gpu")]
-pub struct GpuMonitor {
-    // Store nvml in an Arc to handle ownership issues
-    nvml: Arc<Nvml>,
-    // Cache GPU info to prevent excessive calls
-    last_refresh: Instant,
-    cache_duration: Duration,
-    cached_info: Vec<GpuInfo>,
-}
-
-#[cfg(feature = "nvidia-gpu")]
+// GPU information structure - consistent regardless of GPU type
 #[derive(Clone, Debug)]
 pub struct GpuInfo {
     pub name: String,
     pub utilization: f32,
     pub temperature: u32,
-    pub total_memory: u64,
-    pub used_memory: u64,
-    pub memory_usage: f32,
+    pub total_memory: u64,  // in MB
+    pub used_memory: u64,   // in MB
+    pub memory_usage: f32,  // percentage
+    pub vendor: GpuVendor,
 }
 
-#[cfg(feature = "nvidia-gpu")]
+// GPU vendor types
+#[derive(Clone, Debug, PartialEq)]
+pub enum GpuVendor {
+    Nvidia,
+    Other,
+    None,
+}
+
+// GPU monitoring interface
+pub struct GpuMonitor {
+    // Cache to prevent excessive polling
+    last_refresh: Instant,
+    cache_duration: Duration,
+    cached_info: Vec<GpuInfo>,
+    
+    // NVIDIA support if available
+    #[cfg(feature = "nvidia-gpu")]
+    nvml: Option<nvml_wrapper::Nvml>,
+}
+
 impl GpuMonitor {
-    /// Initialize the GPU monitoring with improved error handling
-    pub fn new() -> Result<Self, nvml_wrapper::error::NvmlError> {
-        // Create Nvml and wrap it in an Arc
-        let nvml = Arc::new(Nvml::init()?);
-        
-        let monitor = GpuMonitor { 
-            nvml,
+    /// Initialize the GPU monitoring system with runtime detection
+    pub fn new() -> Self {
+        // Create a monitor with empty cache
+        let mut monitor = GpuMonitor {
             last_refresh: Instant::now() - Duration::from_secs(10), // Force initial refresh
-            cache_duration: Duration::from_millis(500), // Cache GPU info for 500ms
+            cache_duration: Duration::from_millis(500),
             cached_info: Vec::new(),
+            
+            // Try to initialize NVIDIA monitoring if available
+            #[cfg(feature = "nvidia-gpu")]
+            nvml: None,
         };
         
-        // Perform initial refresh to test if GPU monitoring works
-        let _ = monitor.get_gpu_info();
+        // Initialize NVIDIA if available and the feature is enabled
+        #[cfg(feature = "nvidia-gpu")]
+        {
+            match nvml_wrapper::Nvml::init() {
+                Ok(nvml) => {
+                    // Successfully initialized NVIDIA monitoring
+                    monitor.nvml = Some(nvml);
+                    println!("NVIDIA GPU monitoring initialized successfully");
+                },
+                Err(e) => {
+                    // NVIDIA monitoring failed to initialize
+                    eprintln!("NVIDIA monitoring initialization failed: {:?}", e);
+                    eprintln!("GPU statistics will not be available");
+                }
+            }
+        }
         
-        Ok(monitor)
+        // Perform initial refresh to populate cache
+        let _ = monitor.refresh_gpu_info();
+        
+        monitor
+    }
+    
+    /// Check if any GPUs are available
+    pub fn has_gpus(&self) -> bool {
+        !self.cached_info.is_empty()
     }
     
     /// Get the number of GPUs
-    pub fn device_count(&self) -> Result<usize, nvml_wrapper::error::NvmlError> {
-        Ok(self.nvml.device_count()? as usize)
+    pub fn device_count(&self) -> usize {
+        self.cached_info.len()
     }
     
     /// Get GPU information with caching to prevent excessive polling
@@ -66,86 +94,69 @@ impl GpuMonitor {
     
     /// Internal method to actually fetch GPU data
     fn refresh_gpu_info(&self) -> Vec<GpuInfo> {
-        let count = match self.nvml.device_count() {
-            Ok(count) => count,
-            Err(e) => {
-                eprintln!("Error getting GPU count: {:?}", e);
-                return Vec::new();
-            }
-        };
+        let mut gpu_info = Vec::new();
         
-        let mut gpu_info = Vec::with_capacity(count as usize);
-        
-        for i in 0..count {
-            let device = match self.nvml.device_by_index(i) {
-                Ok(dev) => dev,
-                Err(e) => {
-                    eprintln!("Error accessing GPU {}: {:?}", i, e);
-                    continue;
+        // Try to get NVIDIA GPU info if available
+        #[cfg(feature = "nvidia-gpu")]
+        if let Some(nvml) = &self.nvml {
+            // Add NVIDIA GPUs if available
+            if let Ok(count) = nvml.device_count() {
+                for i in 0..count {
+                    match nvml.device_by_index(i) {
+                        Ok(device) => {
+                            // Get GPU name with fallback
+                            let name = match device.name() {
+                                Ok(name) => name,
+                                Err(_) => String::from("Unknown NVIDIA GPU"),
+                            };
+                            
+                            // Get utilization with fallback
+                            let utilization = match device.utilization_rates() {
+                                Ok(util) => util.gpu as f32,
+                                Err(_) => 0.0,
+                            };
+                            
+                            // Get memory info with fallback
+                            let (total_mem, used_mem, mem_pct) = match device.memory_info() {
+                                Ok(mem) => {
+                                    let total = mem.total / 1024 / 1024; // Convert to MB
+                                    let used = mem.used / 1024 / 1024;   // Convert to MB
+                                    let pct = if total > 0 {
+                                        (used as f32 / total as f32) * 100.0
+                                    } else {
+                                        0.0
+                                    };
+                                    (total, used, pct)
+                                },
+                                Err(_) => (0, 0, 0.0),
+                            };
+                            
+                            // Get temperature with fallback
+                            let temp = match device.temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu) {
+                                Ok(t) => t,
+                                Err(_) => 0,
+                            };
+                            
+                            gpu_info.push(GpuInfo {
+                                name,
+                                utilization,
+                                temperature: temp,
+                                total_memory: total_mem,
+                                used_memory: used_mem,
+                                memory_usage: mem_pct,
+                                vendor: GpuVendor::Nvidia,
+                            });
+                        },
+                        Err(e) => {
+                            eprintln!("Error accessing NVIDIA GPU {}: {:?}", i, e);
+                        }
+                    }
                 }
-            };
-            
-            // Get GPU name with fallback
-            let name = match device.name() {
-                Ok(name) => name,
-                Err(_) => String::from("Unknown GPU"),
-            };
-            
-            // Get utilization with fallback
-            let utilization = match device.utilization_rates() {
-                Ok(util) => util.gpu as f32,
-                Err(_) => 0.0,
-            };
-            
-            // Get memory info with fallback
-            let (total_mem, used_mem, mem_pct) = match device.memory_info() {
-                Ok(mem) => {
-                    let total = mem.total / 1024 / 1024; // Convert to MB
-                    let used = mem.used / 1024 / 1024;   // Convert to MB
-                    let pct = if total > 0 {
-                        (used as f32 / total as f32) * 100.0
-                    } else {
-                        0.0
-                    };
-                    (total, used, pct)
-                },
-                Err(_) => (0, 0, 0.0),
-            };
-            
-            // Get temperature with fallback
-            let temp = match device.temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu) {
-                Ok(t) => t,
-                Err(_) => 0,
-            };
-            
-            gpu_info.push(GpuInfo {
-                name,
-                utilization,
-                temperature: temp,
-                total_memory: total_mem,
-                used_memory: used_mem,
-                memory_usage: mem_pct,
-            });
+            }
         }
         
-        // Update last refresh time (would require interior mutability in a real implementation)
-        // For this example, we'll just return the data directly
-        // In a production system, you would use an Arc<Mutex<>> or similar
+        // In a real implementation with interior mutability, we would update the cache here
+        // For this simplified example, we'll just return the data
         gpu_info
-    }
-}
-
-#[cfg(not(feature = "nvidia-gpu"))]
-#[derive(Default)]
-pub struct GpuMonitor;
-
-#[cfg(not(feature = "nvidia-gpu"))]
-impl GpuMonitor {
-    pub fn new() -> Result<Self, &'static str> {
-        Ok(GpuMonitor)
-    }
-    
-    pub fn device_count(&self) -> usize {
-        0
     }
 }
