@@ -2,7 +2,7 @@
 
 > A lightweight system monitoring tool for your terminal with interactive keyboard controls
 
-![ezstats screenshot](assets/ezstats.png)
+![ezstats demo](assets/demo.gif)
 
 ezstats is a simple, resource-efficient terminal application that displays real-time CPU, RAM, and GPU usage with a clean and colorful interface. Perfect for keeping an eye on system resources without the overhead of larger monitoring applications.
 
